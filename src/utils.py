@@ -1,6 +1,5 @@
 """Utility functions for the MCP Memory Server."""
 import os
-from typing import Optional
 
 def ensure_db_directory(db_path: str = "./chroma_db") -> None:
     """Ensure the ChromaDB directory exists."""

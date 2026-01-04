@@ -1,5 +1,5 @@
 """MCP Memory Server: Long-term memory for AI agents."""
-from typing import Any, Optional
+from typing import Any
 import chromadb
 import datetime
 import uuid
