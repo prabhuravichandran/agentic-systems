@@ -1,6 +1,6 @@
 """Memory store abstraction for ChromaDB operations."""
 import chromadb
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 import logging
 
 logger = logging.getLogger(__name__)
