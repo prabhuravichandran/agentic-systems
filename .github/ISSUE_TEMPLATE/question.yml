@@ -1,0 +1,85 @@
+---
+name: Question
+description: Ask a question about the MCP Memory Server
+title: "[QUESTION] "
+labels: ["question", "triage"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Have a question about the MCP Memory Server? We're here to help! Please provide as much detail as possible so we can give you the best answer.
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: What would you like to know?
+      placeholder: What's your question?
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Provide any relevant context that would help us understand your question better.
+      placeholder: What are you trying to accomplish? What have you tried so far?
+    validations:
+      required: false
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      description: What category does your question fall into?
+      options:
+        - Installation/Setup
+        - Configuration
+        - Usage/API
+        - Development/Contributing
+        - Architecture/Design
+        - Performance
+        - Troubleshooting
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: What version are you using? (if applicable)
+      placeholder: e.g., v0.1.0, main branch, etc.
+    validations:
+      required: false
+
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: What environment are you running in? (if applicable)
+      placeholder: e.g., Claude Desktop, Cline, custom MCP client
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional-info
+    attributes:
+      label: Additional Information
+      description: Any additional information that might be helpful (logs, error messages, configuration, etc.)
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      description: Please check the following before submitting
+      options:
+        - label: I have searched the documentation and existing issues for an answer
+          required: true
+        - label: This is not a bug report (use the bug report template instead)
+          required: true
+        - label: This is not a feature request (use the feature request template instead)
+          required: true

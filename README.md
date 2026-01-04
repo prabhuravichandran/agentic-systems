@@ -1,6 +1,6 @@
 # Agentic Systems: Production-Grade Multi-Agent Infrastructure
 
-[![CI Status](https://github.com/prabhuravichandran/agentic-systems/workflows/CI/badge.svg)](https://github.com/prabhuravichandran/agentic-systems/actions)
+[![CI](https://github.com/prabhuravichandran/agentic-systems/actions/workflows/ci.yml/badge.svg)](https://github.com/prabhuravichandran/agentic-systems/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 > **Status:** 🚧 Alpha | **Stack:** Python, MCP, ChromaDB, FastAPI
@@ -75,6 +75,17 @@ Add this to your claude_desktop_config.json:
 # [Agent calls recall_memory and retrieves the fact]
 ```
 
+For comprehensive usage instructions, see [docs/usage.md](docs/usage.md).
+
+## Demo
+🚧 **Interactive Demo Coming Soon**
+
+A live demonstration will be available showing:
+- Memory persistence across sessions
+- Semantic search capabilities
+- Integration with Claude Desktop
+- Performance benchmarks
+
 ## 4. Architecture
 See docs/architecture.md for detailed system design.
 ```mermaid
@@ -92,7 +103,10 @@ graph TD
 ## 5. Contributing
 See CONTRIBUTING.md for development guidelines.
 
-## 6. License
+## 6. Changelog
+See CHANGELOG.md for version history and release notes.
+
+## 7. License
 MIT License - See LICENSE for details.
 
 Author: Prabhu Ravichandran | LinkedIn | GitHub
