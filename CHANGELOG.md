@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Initial project structure and documentation
+- **Jarvis P0 design v1.1** (commit `94f7ce1`, branch `claude/design-agent-orchestration-G3D0y`):
+  post-PE-review revision of `docs/p0-jarvis-design.md` and
+  `docs/p0-jarvis-requirements.md`. Locks the design after two review
+  passes (5 blockers resolved, 6 push-backs documented as rationale, nits
+  accepted including per-message dedup with status enum, vacuum safety,
+  prompt-injection delimiters + body escape + "not present in thread"
+  hard-rule, and the runs.status exception-mapping table). This is the
+  reference for implementation; any deviation during coding gets a
+  `# deviation: <reason>` comment at the deviation site. Pre-review state
+  is at commit `475b1ce` (design v1.0).
 
 ### Changed
 - Updated CI badge format in README.md
