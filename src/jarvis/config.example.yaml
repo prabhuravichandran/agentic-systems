@@ -1,0 +1,31 @@
+account:
+  email: you@example.com
+
+schedule:
+  hour: 8
+  weekdays_only: true
+
+limits:
+  max_drafts_per_run: 8
+  budget_usd_per_run: 1.00
+  max_thread_tokens: 20000
+  max_email_bytes: 1048576
+
+exclusions:
+  skip_mailing_lists: true
+  skip_noreply: true
+  skip_sender_domains: []
+  skip_gmail_categories: [PROMOTIONS, SOCIAL, SPAM]
+  skip_labels: []
+
+models:
+  classifier: claude-haiku-4-5-20251001
+  drafter: claude-sonnet-4-6
+
+notifications:
+  notify_on: if_drafts
+
+storage:
+  db_path: ~/.local/share/jarvis/jarvis.sqlite
+  retention_days: 7
+  trace_body_chars: 500
