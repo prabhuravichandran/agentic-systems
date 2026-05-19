@@ -10,10 +10,19 @@ dependencies = [
     "chromadb>=0.4.0",
     "fastapi>=0.100.0",
     "uvicorn>=0.20.0",
+    "google-auth>=2.0.0",
+    "google-auth-oauthlib>=1.0.0",
+    "google-api-python-client>=2.0.0",
+    "anthropic>=0.40.0",
+    "pyyaml>=6.0",
+    "keyring>=24.0",
 ]
 requires-python = ">=3.10"
 readme = "README.md"
 license = {text = "MIT"}
+
+[project.scripts]
+jarvis = "jarvis.cli:main"
 
 [project.optional-dependencies]
 dev = [
@@ -50,4 +59,4 @@ python_classes = "Test*"
 python_functions = "test_*"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src"]
+packages = ["src", "src/jarvis"]
