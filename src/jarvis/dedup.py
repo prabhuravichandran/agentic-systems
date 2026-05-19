@@ -13,6 +13,10 @@ from datetime import datetime, timezone
 VALID_STATUSES = ("drafted", "excluded", "classified_noise", "classified_fyi")
 
 
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
 class DedupError(Exception):
     """Raised when callers misuse the per-message-once contract."""
 
@@ -40,36 +44,40 @@ def mark_seen(
     status: str,
     draft_id: str | None = None,
     urgency: str | None = None,
+    now: datetime | None = None,
 ) -> None:
     """Record a (message_id, status) row.
 
-    Raises DedupError if `status` isn't in the enum or if the message_id
-    was already recorded — the per-message-once contract means callers
-    should call `is_seen` first. `draft_id` and `urgency` are only
-    meaningful when status='drafted'.
+    Raises DedupError if `status` isn't in the enum, if the message_id
+    was already recorded (per-message-once contract — callers should call
+    `is_seen` first), if draft_id/urgency are supplied with a non-drafted
+    status, OR if status='drafted' is supplied without both draft_id and
+    urgency (those columns are part of the drafted-row contract).
+
+    `now` is injectable for deterministic tests; defaults to current UTC.
     """
     if status not in VALID_STATUSES:
         raise DedupError(
             f"invalid seen_items.status {status!r}; "
             f"expected one of {VALID_STATUSES}"
         )
-    if status != "drafted" and (draft_id is not None or urgency is not None):
-        raise DedupError(
-            "draft_id and urgency are only valid when status='drafted'"
-        )
+    if status == "drafted":
+        if draft_id is None or urgency is None:
+            raise DedupError(
+                "status='drafted' requires both draft_id and urgency"
+            )
+    else:
+        if draft_id is not None or urgency is not None:
+            raise DedupError(
+                "draft_id and urgency are only valid when status='drafted'"
+            )
+    when = (now or _utcnow()).isoformat()
     try:
         conn.execute(
             "INSERT INTO seen_items "
             "(message_id, thread_id, first_seen_at, status, draft_id, urgency) "
             "VALUES (?, ?, ?, ?, ?, ?)",
-            (
-                message_id,
-                thread_id,
-                datetime.now(timezone.utc).isoformat(),
-                status,
-                draft_id,
-                urgency,
-            ),
+            (message_id, thread_id, when, status, draft_id, urgency),
         )
     except sqlite3.IntegrityError as e:
         raise DedupError(

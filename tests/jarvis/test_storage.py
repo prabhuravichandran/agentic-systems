@@ -1,33 +1,26 @@
 """Tests for jarvis.storage + jarvis.trace.
 
-Covers schema init (idempotent, all four tables), vacuum (success + failure
-paths), label_cache TTL semantics, and run/trace row lifecycle including
-the B5 partial-failure trace stages.
+Covers schema init (idempotent, all four tables, FK enforcement), vacuum
+(success + failure paths via mocked sqlite3.Error), label_cache TTL
+semantics, and run/trace row lifecycle including the B5 partial-failure
+trace stages (draft_create_failed, thread_too_large,
+classifier_malformed_json, gmail_rate_limited).
 """
 from __future__ import annotations
 
 import json
 import sqlite3
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
-from typing import Iterator
 from unittest.mock import MagicMock
 
 import pytest
 
 from jarvis import storage, trace
 
-
-@pytest.fixture
-def conn(tmp_path: Path) -> Iterator[sqlite3.Connection]:
-    db = tmp_path / "test.sqlite"
-    c = storage.connect(db)
-    storage.init_schema(c)
-    yield c
-    c.close()
+pytestmark = pytest.mark.unit
 
 
-def test_connect_creates_parent_dir(tmp_path: Path) -> None:
+def test_connect_creates_parent_dir(tmp_path):  # type: ignore[no-untyped-def]
     nested = tmp_path / "a" / "b" / "c" / "jarvis.sqlite"
     c = storage.connect(nested)
     try:
@@ -66,6 +59,22 @@ def test_seen_items_message_id_is_primary_key(conn: sqlite3.Connection) -> None:
             "VALUES (?, ?, ?, ?)",
             ("m1", "t2", "2026-01-02T00:00:00Z", "excluded"),
         )
+
+
+@pytest.mark.contract
+def test_traces_foreign_key_to_runs_is_enforced(conn: sqlite3.Connection) -> None:
+    """Bug 4 / G4: FK enforcement on traces.run_id requires
+    PRAGMA foreign_keys = ON, which `storage.connect` sets. If this
+    regresses, integration tests later will silently accept orphan traces."""
+    with pytest.raises(sqlite3.IntegrityError):
+        conn.execute(
+            "INSERT INTO traces (run_id, message_id, stage, detail_json) "
+            "VALUES (?, ?, ?, ?)",
+            (99999, "msg-orphan", "excluded", "{}"),
+        )
+
+
+# -- vacuum ------------------------------------------------------------------
 
 
 def test_vacuum_deletes_old_traces(conn: sqlite3.Connection) -> None:
@@ -110,73 +119,83 @@ def test_vacuum_keeps_recent_rows(conn: sqlite3.Connection) -> None:
     assert len(rows) == 1
 
 
+@pytest.mark.regression
 def test_vacuum_failure_logs_and_continues(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
+    """G3: assert log record properties (level + logger name), not text —
+    text is not a contract. The contract is `vacuum never aborts the caller`
+    and `the failure is observable via WARNING-level logs`."""
     bad_conn = MagicMock()
     bad_conn.execute.side_effect = sqlite3.OperationalError("database is locked")
-    with caplog.at_level("WARNING"):
+    with caplog.at_level("WARNING", logger="jarvis.storage"):
         storage.vacuum(bad_conn, retention_days=7)
-    assert "vacuum failed" in caplog.text
-    # Did NOT raise — that's the whole point
+    assert any(
+        rec.levelname == "WARNING" and rec.name == "jarvis.storage"
+        for rec in caplog.records
+    ), f"expected a WARNING from jarvis.storage; got {caplog.records!r}"
+
+
+# -- label cache (G4: injectable `now` makes these deterministic) -----------
 
 
 def test_label_cache_miss_returns_none(conn: sqlite3.Connection) -> None:
     assert storage.get_label_id(conn, "Jarvis/Urgent") is None
 
 
-def test_label_cache_upsert_and_get(conn: sqlite3.Connection) -> None:
-    storage.upsert_label(conn, "Jarvis/Urgent", "Label_42")
-    assert storage.get_label_id(conn, "Jarvis/Urgent") == "Label_42"
+def test_label_cache_upsert_and_get(
+    conn: sqlite3.Connection, now: datetime
+) -> None:
+    storage.upsert_label(conn, "Jarvis/Urgent", "Label_42", now=now)
+    assert storage.get_label_id(conn, "Jarvis/Urgent", now=now) == "Label_42"
 
 
-def test_label_cache_upsert_overwrites_existing(conn: sqlite3.Connection) -> None:
-    storage.upsert_label(conn, "Jarvis/Urgent", "Label_old")
-    storage.upsert_label(conn, "Jarvis/Urgent", "Label_new")
-    assert storage.get_label_id(conn, "Jarvis/Urgent") == "Label_new"
+def test_label_cache_upsert_overwrites_existing(
+    conn: sqlite3.Connection, now: datetime
+) -> None:
+    storage.upsert_label(conn, "Jarvis/Urgent", "Label_old", now=now)
+    storage.upsert_label(conn, "Jarvis/Urgent", "Label_new", now=now)
+    assert storage.get_label_id(conn, "Jarvis/Urgent", now=now) == "Label_new"
 
 
-def test_label_cache_stale_entry_returns_none(conn: sqlite3.Connection) -> None:
-    old = (
-        datetime.now(timezone.utc)
-        - timedelta(days=storage.LABEL_CACHE_TTL_DAYS + 1)
-    ).isoformat()
-    conn.execute(
-        "INSERT INTO label_cache (label_name, label_id, cached_at) VALUES (?, ?, ?)",
-        ("Jarvis/Stale", "Label_X", old),
-    )
-    conn.commit()
-    assert storage.get_label_id(conn, "Jarvis/Stale") is None
+def test_label_cache_just_under_ttl_is_fresh(
+    conn: sqlite3.Connection, now: datetime
+) -> None:
+    """Boundary: cached_at = now - (TTL - 1s) is still fresh."""
+    cached = now - timedelta(days=storage.LABEL_CACHE_TTL_DAYS, seconds=-1)
+    storage.upsert_label(conn, "Jarvis/Fresh", "Label_F", now=cached)
+    assert storage.get_label_id(conn, "Jarvis/Fresh", now=now) == "Label_F"
 
 
-def test_label_cache_recent_entry_is_fresh(conn: sqlite3.Connection) -> None:
-    recent = (
-        datetime.now(timezone.utc)
-        - timedelta(days=storage.LABEL_CACHE_TTL_DAYS - 1)
-    ).isoformat()
-    conn.execute(
-        "INSERT INTO label_cache (label_name, label_id, cached_at) VALUES (?, ?, ?)",
-        ("Jarvis/Fresh", "Label_Y", recent),
-    )
-    conn.commit()
-    assert storage.get_label_id(conn, "Jarvis/Fresh") == "Label_Y"
+def test_label_cache_just_over_ttl_is_stale(
+    conn: sqlite3.Connection, now: datetime
+) -> None:
+    """Boundary: cached_at = now - (TTL + 1s) is stale → None."""
+    cached = now - timedelta(days=storage.LABEL_CACHE_TTL_DAYS, seconds=1)
+    storage.upsert_label(conn, "Jarvis/Stale", "Label_S", now=cached)
+    assert storage.get_label_id(conn, "Jarvis/Stale", now=now) is None
 
 
 # -- trace lifecycle ---------------------------------------------------------
 
 
-def test_start_run_creates_row_with_started_at(conn: sqlite3.Connection) -> None:
-    run_id = trace.start_run(conn)
+def test_start_run_creates_row_with_started_at(
+    conn: sqlite3.Connection, now: datetime
+) -> None:
+    run_id = trace.start_run(conn, now=now)
     row = conn.execute(
         "SELECT started_at, ended_at, status FROM runs WHERE run_id = ?", (run_id,)
     ).fetchone()
-    assert row[0] is not None
+    assert row[0] == now.isoformat()
     assert row[1] is None
     assert row[2] is None
 
 
-def test_end_run_updates_counters_and_status(conn: sqlite3.Connection) -> None:
-    run_id = trace.start_run(conn)
+def test_end_run_updates_counters_and_status(
+    conn: sqlite3.Connection, now: datetime
+) -> None:
+    run_id = trace.start_run(conn, now=now)
+    end = now + timedelta(minutes=2)
     trace.end_run(
         conn,
         run_id,
@@ -186,6 +205,7 @@ def test_end_run_updates_counters_and_status(conn: sqlite3.Connection) -> None:
         classified_action=8,
         drafts_created=7,
         budget_cents_used=42,
+        now=end,
     )
     row = conn.execute(
         "SELECT status, ended_at, unread_scanned, excluded, classified_action, "
@@ -193,7 +213,7 @@ def test_end_run_updates_counters_and_status(conn: sqlite3.Connection) -> None:
         (run_id,),
     ).fetchone()
     assert row[0] == "success"
-    assert row[1] is not None
+    assert row[1] == end.isoformat()
     assert row[2] == 65
     assert row[3] == 50
     assert row[4] == 8
@@ -241,6 +261,7 @@ def test_record_stage_rejects_invalid_stage(conn: sqlite3.Connection) -> None:
     assert "bogus_stage" in str(exc_info.value)
 
 
+@pytest.mark.regression
 def test_record_stage_draft_create_failed(conn: sqlite3.Connection) -> None:
     """B5 partial-failure path: per-item draft_create_failed traces."""
     run_id = trace.start_run(conn)
@@ -255,6 +276,7 @@ def test_record_stage_draft_create_failed(conn: sqlite3.Connection) -> None:
     assert json.loads(row[1]) == {"error": "Gmail API 500"}
 
 
+@pytest.mark.regression
 def test_record_stage_thread_too_large(conn: sqlite3.Connection) -> None:
     """B5 case: latest message alone exceeds the input-token cap, skip entirely."""
     run_id = trace.start_run(conn)
@@ -265,3 +287,40 @@ def test_record_stage_thread_too_large(conn: sqlite3.Connection) -> None:
         "SELECT stage FROM traces WHERE message_id = ?", ("msg-big",)
     ).fetchone()
     assert row[0] == "thread_too_large"
+
+
+@pytest.mark.regression
+def test_record_stage_classifier_malformed_json(conn: sqlite3.Connection) -> None:
+    """B5 partial: a classifier batch returned unparseable JSON. The batch
+    is keyed by its first message_id (caller's choice) so the trace is
+    grep-able."""
+    run_id = trace.start_run(conn)
+    trace.record_stage(
+        conn,
+        run_id,
+        "batch-first-msg-id",
+        "classifier_malformed_json",
+        {"raw_response_excerpt": "<<<garbage>>>"},
+    )
+    row = conn.execute(
+        "SELECT stage FROM traces WHERE message_id = ?", ("batch-first-msg-id",)
+    ).fetchone()
+    assert row[0] == "classifier_malformed_json"
+
+
+@pytest.mark.regression
+def test_record_stage_gmail_rate_limited(conn: sqlite3.Connection) -> None:
+    """B5 partial: 429 from Gmail mid-run, drafts produced before the 429
+    are persisted; this stage records the message we couldn't process."""
+    run_id = trace.start_run(conn)
+    trace.record_stage(
+        conn,
+        run_id,
+        "msg-throttled",
+        "gmail_rate_limited",
+        {"retry_after_s": 60},
+    )
+    row = conn.execute(
+        "SELECT stage FROM traces WHERE message_id = ?", ("msg-throttled",)
+    ).fetchone()
+    assert row[0] == "gmail_rate_limited"

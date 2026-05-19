@@ -9,6 +9,8 @@ import yaml
 from jarvis import config
 from jarvis.config import Config, ConfigError, from_dict
 
+pytestmark = pytest.mark.unit
+
 
 EXAMPLE_PATH = Path(__file__).parent.parent.parent / "src" / "jarvis" / "config.example.yaml"
 
@@ -116,6 +118,16 @@ def test_skip_sender_domains_must_be_strings() -> None:
     msg = str(exc_info.value)
     assert "exclusions.skip_sender_domains[1]" in msg
     assert "str" in msg
+
+
+@pytest.mark.regression
+def test_skip_sender_domains_lowercased_at_load() -> None:
+    """Bug 1: user writing `Chase.com` in YAML must still match lowercase
+    domains from incoming messages. Canonicalisation happens once at load."""
+    data = _good()
+    data["exclusions"]["skip_sender_domains"] = ["Chase.com", "IRS.GOV"]
+    cfg = from_dict(data)
+    assert cfg.exclusions.skip_sender_domains == ("chase.com", "irs.gov")
 
 
 def test_invalid_notify_on_value_rejected() -> None:

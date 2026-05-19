@@ -33,10 +33,15 @@ NOREPLY_LOCALS = (
 
 def is_excluded(msg: MessageMeta, cfg: Config) -> tuple[bool, str]:
     """Return (True, reason) if msg should be skipped, else (False, '')."""
+    # deviation: design doc uses canonical-case header lookups
+    # (`List-Unsubscribe`, etc.); we normalise MessageMeta.headers to
+    # lower-case at construction time (RFC 5322 says these are
+    # case-insensitive) so filter lookups are correctness-by-construction
+    # rather than depending on the gmail wrapper getting the case right.
     if cfg.exclusions.skip_mailing_lists and (
-        msg.headers.get("List-Unsubscribe")
-        or msg.headers.get("Precedence", "").lower() == "bulk"
-        or msg.headers.get("Auto-Submitted", "no").lower() != "no"
+        msg.headers.get("list-unsubscribe")
+        or msg.headers.get("precedence", "").lower() == "bulk"
+        or msg.headers.get("auto-submitted", "no").lower() != "no"
     ):
         return True, "mailing_list"
     if cfg.exclusions.skip_noreply and _is_noreply(msg.from_addr):

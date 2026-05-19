@@ -151,10 +151,13 @@ def from_dict(data: dict[str, Any]) -> Config:
     )
 
     excl_d = _section(data, "exclusions", "")
+    # canonicalise sender domains to lower-case once at load time, so filters
+    # can match case-insensitively without re-normalising on every message.
+    raw_domains = _string_list(excl_d, "skip_sender_domains", "exclusions")
     exclusions = ExclusionsConfig(
         skip_mailing_lists=_field(excl_d, "skip_mailing_lists", bool, "exclusions"),
         skip_noreply=_field(excl_d, "skip_noreply", bool, "exclusions"),
-        skip_sender_domains=_string_list(excl_d, "skip_sender_domains", "exclusions"),
+        skip_sender_domains=tuple(d.lower() for d in raw_domains),
         skip_gmail_categories=_string_list(
             excl_d, "skip_gmail_categories", "exclusions"
         ),

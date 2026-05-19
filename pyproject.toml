@@ -57,6 +57,12 @@ testpaths = ["tests"]
 python_files = "test_*.py"
 python_classes = "Test*"
 python_functions = "test_*"
+markers = [
+    "unit: pure-function tests, in-memory only, < 50 ms each",
+    "integration: multi-module tests using fakes/mocks, < 500 ms each",
+    "contract: tests that assert inter-module contracts",
+    "regression: named bug-fix tests (B1, B2, B5, ...) — never delete without explicit decision",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src", "src/jarvis"]

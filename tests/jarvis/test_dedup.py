@@ -2,21 +2,13 @@
 from __future__ import annotations
 
 import sqlite3
-from pathlib import Path
-from typing import Iterator
+from datetime import datetime
 
 import pytest
 
-from jarvis import dedup, storage
+from jarvis import dedup
 
-
-@pytest.fixture
-def conn(tmp_path: Path) -> Iterator[sqlite3.Connection]:
-    db = tmp_path / "dedup.sqlite"
-    c = storage.connect(db)
-    storage.init_schema(c)
-    yield c
-    c.close()
+pytestmark = pytest.mark.unit
 
 
 def test_unseen_message_returns_false(conn: sqlite3.Connection) -> None:
@@ -44,9 +36,7 @@ def test_mark_seen_drafted_persists_draft_id_and_urgency(
 
 
 def test_mark_seen_excluded(conn: sqlite3.Connection) -> None:
-    dedup.mark_seen(
-        conn, message_id="m2", thread_id="t2", status="excluded"
-    )
+    dedup.mark_seen(conn, message_id="m2", thread_id="t2", status="excluded")
     assert dedup.get_status(conn, "m2") == "excluded"
     assert dedup.get_draft_id(conn, "m2") is None
 
@@ -100,6 +90,49 @@ def test_mark_seen_rejects_urgency_when_not_drafted(
         )
 
 
+# -- Bug 3 inverse-check regressions ----------------------------------------
+
+
+@pytest.mark.regression
+def test_mark_seen_drafted_requires_draft_id(conn: sqlite3.Connection) -> None:
+    """Bug 3: status='drafted' must carry a draft_id; otherwise we'd
+    silently insert NULL and `get_draft_id` would return None for a row
+    that's supposedly drafted."""
+    with pytest.raises(dedup.DedupError) as exc_info:
+        dedup.mark_seen(
+            conn,
+            message_id="m8",
+            thread_id="t8",
+            status="drafted",
+            urgency="URGENT",  # draft_id missing
+        )
+    assert "draft_id" in str(exc_info.value)
+
+
+@pytest.mark.regression
+def test_mark_seen_drafted_requires_urgency(conn: sqlite3.Connection) -> None:
+    """Bug 3: status='drafted' must carry an urgency too."""
+    with pytest.raises(dedup.DedupError) as exc_info:
+        dedup.mark_seen(
+            conn,
+            message_id="m9",
+            thread_id="t9",
+            status="drafted",
+            draft_id="r-1",  # urgency missing
+        )
+    assert "urgency" in str(exc_info.value)
+
+
+@pytest.mark.regression
+def test_mark_seen_drafted_with_neither_rejected(
+    conn: sqlite3.Connection,
+) -> None:
+    with pytest.raises(dedup.DedupError):
+        dedup.mark_seen(
+            conn, message_id="m10", thread_id="t10", status="drafted"
+        )
+
+
 def test_mark_seen_twice_for_same_message_raises(
     conn: sqlite3.Connection,
 ) -> None:
@@ -127,7 +160,6 @@ def test_orchestrator_pattern_is_seen_then_mark(
         dedup.mark_seen(
             conn, message_id="m-new", thread_id="t-new", status="excluded"
         )
-    # On a repeat run, the guard skips the second insert
     if not dedup.is_seen(conn, "m-new"):  # False — already seen
         dedup.mark_seen(
             conn, message_id="m-new", thread_id="t-new", status="excluded"
@@ -160,3 +192,20 @@ def test_different_messages_dont_collide(conn: sqlite3.Connection) -> None:
     assert dedup.get_status(conn, "m-b") == "drafted"
     assert dedup.get_draft_id(conn, "m-a") == "r-a"
     assert dedup.get_draft_id(conn, "m-b") == "r-b"
+
+
+def test_mark_seen_persists_first_seen_at_from_now(
+    conn: sqlite3.Connection, now: datetime
+) -> None:
+    """G4: injected `now` is what gets persisted, deterministically."""
+    dedup.mark_seen(
+        conn,
+        message_id="m-timed",
+        thread_id="t-timed",
+        status="excluded",
+        now=now,
+    )
+    row = conn.execute(
+        "SELECT first_seen_at FROM seen_items WHERE message_id = ?", ("m-timed",)
+    ).fetchone()
+    assert row[0] == now.isoformat()

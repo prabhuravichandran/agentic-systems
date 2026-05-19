@@ -51,6 +51,14 @@ uv pip install -e .
 uv run python src/server.py
 ```
 
+### Setup gotchas
+- **PyJWT conflict on Debian-based systems with apt-installed `python3-jwt`:**
+  `pip install -e .` aborts with `Cannot uninstall PyJWT ... RECORD file not
+  found` because `google-auth-oauthlib`'s transitive PyJWT requirement
+  collides with the apt-managed version. Use a fresh venv (`uv venv` or
+  `python -m venv .venv`) to install into; or, for a one-shot scaffold check
+  where deps aren't needed, `pip install -e . --no-deps`.
+
 ### Configuration (For Cline/Claude Desktop)
 Add this to your claude_desktop_config.json:
 ```json

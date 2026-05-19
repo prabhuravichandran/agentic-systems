@@ -14,10 +14,12 @@ from dataclasses import dataclass, field
 class MessageMeta:
     """Per-message metadata sufficient for filtering, dedup, and classification.
 
-    Header dict keys use RFC canonical case (`List-Unsubscribe`,
-    `Auto-Submitted`, `Precedence`) — `gmail.list_unread` is responsible
-    for normalising on the way in. Filter code reads values, not keys,
-    so case-insensitivity is only relevant on the lookup itself.
+    Header dict keys are normalised to lower-case in __post_init__ so that
+    lookups elsewhere (filters, gmail wrapper) are correctness-by-construction
+    rather than relying on every caller to pass canonical case. RFC 5322
+    declares header field names case-insensitive — encoding that here once
+    means filter rules can't silently miss because Gmail returned
+    `Precedence` instead of `precedence`.
     """
 
     id: str
@@ -31,6 +33,10 @@ class MessageMeta:
     snippet: str = ""
     gmail_labels: tuple[str, ...] = field(default_factory=tuple)
     size_estimate: int = 0
+
+    def __post_init__(self) -> None:
+        normalised = {k.lower(): v for k, v in self.headers.items()}
+        object.__setattr__(self, "headers", normalised)
 
 
 @dataclass(frozen=True)

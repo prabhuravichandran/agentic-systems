@@ -99,12 +99,19 @@ def vacuum(conn: sqlite3.Connection, retention_days: int) -> None:
         log.warning("vacuum failed, continuing: %s", e)
 
 
-def get_label_id(conn: sqlite3.Connection, label_name: str) -> str | None:
+def get_label_id(
+    conn: sqlite3.Connection,
+    label_name: str,
+    *,
+    now: datetime | None = None,
+) -> str | None:
     """Return cached Gmail label_id or None if missing/stale.
 
     Entries older than LABEL_CACHE_TTL_DAYS are treated as missing so that
     if a user deletes and recreates a Jarvis label in Gmail, we'll refresh
     rather than get stuck on a stale 404-returning ID.
+
+    `now` is injectable for deterministic tests; defaults to current UTC.
     """
     row = conn.execute(
         "SELECT label_id, cached_at FROM label_cache WHERE label_name = ?",
@@ -115,18 +122,28 @@ def get_label_id(conn: sqlite3.Connection, label_name: str) -> str | None:
     cached_at = datetime.fromisoformat(row[1])
     if cached_at.tzinfo is None:
         cached_at = cached_at.replace(tzinfo=timezone.utc)
-    if datetime.now(timezone.utc) - cached_at > timedelta(days=LABEL_CACHE_TTL_DAYS):
+    reference = now or datetime.now(timezone.utc)
+    if reference - cached_at > timedelta(days=LABEL_CACHE_TTL_DAYS):
         return None
     return row[0]
 
 
-def upsert_label(conn: sqlite3.Connection, label_name: str, label_id: str) -> None:
-    """Insert or refresh a (label_name → label_id) mapping with current timestamp."""
-    now = datetime.now(timezone.utc).isoformat()
+def upsert_label(
+    conn: sqlite3.Connection,
+    label_name: str,
+    label_id: str,
+    *,
+    now: datetime | None = None,
+) -> None:
+    """Insert or refresh a (label_name → label_id) mapping with timestamp.
+
+    `now` is injectable for deterministic tests; defaults to current UTC.
+    """
+    when = (now or datetime.now(timezone.utc)).isoformat()
     conn.execute(
         "INSERT INTO label_cache (label_name, label_id, cached_at) VALUES (?, ?, ?) "
         "ON CONFLICT(label_name) DO UPDATE SET label_id = excluded.label_id, "
         "cached_at = excluded.cached_at",
-        (label_name, label_id, now),
+        (label_name, label_id, when),
     )
     conn.commit()
